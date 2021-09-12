@@ -1,5 +1,7 @@
 # Implementation
 
+note: this document is a work in progress
+
 ## Definition
 
 The purpose of this project is to implement and benchmark DEFLATE -algorithm with Python.
