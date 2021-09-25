@@ -10,3 +10,4 @@ Algorithms and data structures project
 
 * [Week 1](documentation/progress_report_week1.md)
 * [Week 2](documentation/progress_report_week2.md)
+* [Week 3](documentation/progress_report_week3.md)
