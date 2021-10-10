@@ -12,6 +12,7 @@ Algorithms and data structures project
 * [Week 2](documentation/progress_report_week2.md)
 * [Week 3](documentation/progress_report_week3.md)
 * [Week 4](documentation/progress_report_week4.md)
+* [Week 5](documentation/progress_report_week5.md)
 
 ## Commands
 
