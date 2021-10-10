@@ -7,6 +7,10 @@ class TestLZSSFunctionality(unittest.TestCase):
         result_string = "test in <8,4><7,2>g new <10,2>r<11,3>"
         self.assertEqual(lzss_encode(test_string), result_string)
 
+    def test_buffer_size_affects_output(self):
+        test_string = "test test golden retilou test"
+        self.assertNotEqual(lzss_encode(test_string, 50), lzss_encode(test_string, 5))
+
     def test_simple_decode(self):
         test_string = "testing a <10,4>er"
         result_string = "testing a tester"
