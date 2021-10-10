@@ -1,76 +1,88 @@
-def construct_longer_string(buf: str, current_pos: int, current_len: int, new_char: str) -> str:
-    """ Reads the current match from the buffer
-        and appends the new character to it.
-    """
-    return buf[current_pos:(current_pos+current_len)] + new_char
+from collections import deque
 
 
-def append_lzss(string: str, pos: int, length: int, buf: str) -> str:
+def append_lzss(output: str, pos: int, s: str, buf: deque) -> str:
     """ Formats the matched string
         into proper form and appends it to the output
     """
-    if length >= 2:
-        string += "<" + str(pos) + "," + str(length) + ">"
+    if len(s) >= 2:
+        relative_pos = str(len(buf)-pos-len(s))
+        output += "<" + relative_pos + "," + str(len(s)) + ">"
     else:
-        string += buf[pos:(pos+length)]
-    return string
+        output += s
+    return output
 
 
-def found_new_letter_match(new_char: str, buf: str, output: str) -> (int, int, str):
-    """ If a new matching is found, updates the variables
-        position, length and output.
+def check_match_from(pos: int, s: str, buf: deque) -> bool:
+    """ Checks if 's' is in 'buf' starting from 'pos'
     """
-    new_char_pos = buf.find(new_char)
-    if new_char_pos >= 0:
-        return (new_char_pos, 1, output)
-    else:
-        return (-1, 0, output+new_char)
+    i = 0
+    for i in range(0, len(s)):
+        if s[i] != buf[pos+i]:
+            return False
+    return True
 
 
-def handle_new_character(new_char: str, current_pos: int, current_len: int, buf: str, output: str) -> (int, int, str):
+def buffer_find(s: str, buf: deque) -> int:
+    """ Checks if 's' is included in 'buf' 
+        Returns 'pos' of matched string if found,
+        otherwise returns -1
+    """
+    pos = len(buf) - len(s)
+    while pos >= 0:
+        if check_match_from(pos, s, buf):
+            return pos
+        pos -= 1
+    return pos
+
+
+def check_match(c: str, s: str, pos: int, buf: deque, output: str) -> (int, str, str):
     """ Handles a new character:
         if there is a previous match, checks if the match can be elongated;
         if not, checks if the new character can be matched separately.
-
         Returns the updated output with the information about the current match.
     """
-    # earlier match exists
-    if current_len > 0:
-        # is there a longer match
-        new_string = construct_longer_string(buf, current_pos, current_len, new_char)
-        new_string_pos = buf.find(new_string)
-
-        # yes
-        if new_string_pos >= 0:
-            return (new_string_pos, current_len+1, output)
-        # no
+    if pos >= 0:
+        new_s = s + c
+        new_pos = buffer_find(new_s, buf)
+        if new_pos >= 0:
+            return (new_pos, new_s, output)
         else:
-            output = append_lzss(output, current_pos, current_len, buf)
-            return found_new_letter_match(new_char, buf, output)
-    # earlier match does not exist
+            output = append_lzss(output, pos, s, buf)    
+    
+    pos = buffer_find(c, buf)
+    if pos >= 0:
+        return (pos, c, output)
     else:
-        return found_new_letter_match(new_char, buf, output)
+        return (pos, "", output + c)
 
 
-def lzss_encode(input_string: str) -> str:
+def lzss_encode(input_string: str, buffer_size: int = 20) -> str:
     """ Encodes the input string using
         Lempel-Ziv-Storer-Szymanski encoding
 
         Currently does not work properly if the input_string contains '<'.
     """
-    buffer_string = ""
+    buf = deque()
     output = ""
 
-    current_pos = -1
-    current_len = 0
+    s = ""
+    pos = -1
 
-    for s in input_string:
-        (current_pos, current_len, output) =\
-            handle_new_character(s, current_pos, current_len, buffer_string, output)
-        buffer_string += s
+    for i in range(0, len(input_string)):
+        c = input_string[i]
+        (pos, s, output) = check_match(c, s, pos, buf, output)
+        buf.append(c)
 
-    if current_pos >= 0:
-        output = append_lzss(output, current_pos, current_len, buffer_string)
+        if len(buf) == buffer_size + 1:
+            buf.popleft()
+            pos -= 1
+            if pos < 0:
+                output = append_lzss(output, pos, s, buf)
+                s = ""
+
+    if pos >= 0:
+        output = append_lzss(output, pos, s, buf)
 
     return output
 
@@ -82,9 +94,9 @@ def handle_encoded_str(input_string: str, i: int, output: str) -> (int, str):
     """
     i = i+1  # skip opening bracket
 
-    starting_pos_str = ""
+    rel_starting_pos_str = ""
     while input_string[i] != ",":
-        starting_pos_str += input_string[i]
+        rel_starting_pos_str += input_string[i]
         i = i+1
 
     i = i+1  # skip comma
@@ -96,8 +108,9 @@ def handle_encoded_str(input_string: str, i: int, output: str) -> (int, str):
 
     i = i + 1  # skip closing bracket
 
-    starting_pos = int(starting_pos_str)
+    rel_starting_pos = int(rel_starting_pos_str)
     length = int(length_str)
+    starting_pos = len(output)-rel_starting_pos
 
     encoded_string = output[starting_pos:(starting_pos+length)]
 
