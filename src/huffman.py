@@ -1,25 +1,26 @@
 from heapq import heappush, heappop, heapify
+from helpers import bits_to_byte, int_to_bit_str, rle
 
 
 class HuffTree:
-    def __init__(self, char: str, count: int):
-        self.char = char
+    def __init__(self, byte: bytes, count: int):
+        self.byte = byte
         self.count = count
         self.left = None
         self.right = None
 
     def merge(self, other):
-        first = HuffTree(self.char, self.count)
+        first = HuffTree(self.byte, self.count)
         first.left = self.left
         first.right = self.right
-        self.char = None
+        self.byte = None
         self.count = first.count + other.count
         self.left = first
         self.right = other
 
     def __str__(self):
-        if self.char is not None:
-            return f"{self.count} {self.char}"
+        if self.byte is not None:
+            return f"{self.count} {self.byte}"
         else:
             return str(self.count) + ": ( " + \
                     self.left.__str__() + ", " + self.right.__str__() + \
@@ -34,104 +35,109 @@ class HuffTree:
         return self.count < other.count
 
 
-def dict_increment(d: dict, newchar: str) -> dict:
-    if newchar in d:
-        d[newchar] += 1
-    else:
-        d[newchar] = 1
-    return d
+def byte_counts(input_bytes: bytearray) -> list:
+    d = [0]*257
+    for b in input_bytes:
+        d[b] += 1
 
-# lambda item: 2*item
-# lambda x: 2*x
-# f(x) 2*x
+    hufftree_list = []
+    for b in range(0, 257):
+        hufftree_list.append(HuffTree(b, d[b]))
 
-def counts(input_string: str) -> list:
-    d = {}
-    for s in input_string:
-        dict_increment(d, s)
-    hufftree_list = list(map(lambda item: HuffTree(item[0], item[1]), d.items()))
     return hufftree_list
 
 
-def counts_to_heap(lst: list) -> list:
-    heapify(lst)
-    return lst
-
-
-def heap_to_hufftree(h: list) -> HuffTree:
-    while len(h) > 1:
-        node1 = heappop(h)
-        node2 = heappop(h)
+def counts_to_hufftree(count_list: list) -> HuffTree:
+    heapify(count_list)
+    while len(count_list) > 1:
+        node1 = heappop(count_list)
+        node2 = heappop(count_list)
         node1.merge(node2)
-        heappush(h, node1)
+        heappush(count_list, node1)
 
-    return heappop(h)
+    return heappop(count_list)
 
 
-def hufftree_to_keys(ht: HuffTree, prefix: str) -> list:
-    if ht.char is not None:
-        return [(ht.char, prefix)]
+def hufftree_to_keys(ht: HuffTree, key: int,
+                     lst: list) -> list:
+    if ht.byte is not None:
+        lst[ht.byte] = key
+        return lst
     else:
-        left = hufftree_to_keys(ht.left, prefix + "0")
-        right = hufftree_to_keys(ht.right, prefix + "1")
-        return left + right
+        lst = hufftree_to_keys(ht.left, key+[0], lst)
+        lst = hufftree_to_keys(ht.right, key+[1], lst)
+        return lst
 
 
-def huff_encode(input_string: str) -> str:
+def huff_encode(input_bytes: bytearray) -> bytearray:
 
-    counts_dict = counts(input_string)
-    heapify_dict = counts_to_heap(counts_dict)
-    make_it_hufftree = heap_to_hufftree(heapify_dict)
-    keys = hufftree_to_keys(make_it_hufftree, "")
+    counts_dict = byte_counts(input_bytes)
+    hufftree = counts_to_hufftree(counts_dict)
+    keys_empty = [[]]*257
+    keys = hufftree_to_keys(hufftree, [], keys_empty)
 
-    key_dict = {}
+    output = bytearray()
 
-    output_string = ""
-    for key, value in keys:
-        key_dict[key] = value
-        output_string += key + ":" + value + " "
+    # add rle bitlengths
+    output += rle(list(map(len, keys)))
 
-    output_string += "| "
+    # add codes
+    output_buffer = []
+    for i in range(0, 257):
+        output_buffer += keys[i]
+        while len(output_buffer) >= 8:
+            output += bits_to_byte(output_buffer[:8])
+            output_buffer = output_buffer[8:]
 
-    for char in input_string:
-        output_string += key_dict[char]
+    # add input data
+    for byte in input_bytes:
+        output_buffer += keys[byte]
+        while len(output_buffer) >= 8:
+            output += bits_to_byte(output_buffer[:8])
+            output_buffer = output_buffer[8:]
 
-    return output_string
+    output_buffer += keys[256]
+    # add rest of the buffer
+    while len(output_buffer) > 0:
+        output += bits_to_byte(output_buffer[:8])
+        output_buffer = output_buffer[8:]
 
-
-def parse_huffman_tree(input_string: str) -> (dict, str):
-
-    key_dict = {}
-
-    i = 0
-    current_char = input_string[0]
-    while current_char != "|":
-        i += 2 # skip colon
-
-        key = ""
-        while input_string[i] != " ":
-            key += input_string[i]
-            i += 1 # move to next number
-
-        key_dict[key] = current_char
-        i += 1 # skip space
-        current_char = input_string[i]
-
-    return (key_dict, input_string[(i+2):])
+    return output
 
 
-def huff_decode(input_string: str) -> str:
-    (key_dict, encoded_string) = parse_huffman_tree(input_string)
+def huff_decode(input_bytes: bytearray) -> bytearray:
+    bit_lengths = []
 
     i = 0
-    decoded_string = ""
-    while i < len(encoded_string):
-        current_key = encoded_string[i]
-        while current_key not in key_dict:
+    while len(bit_lengths) < 257:
+        count = input_bytes[i]
+        val = input_bytes[i+1]
+        for j in range(0, count):
+            bit_lengths.append(val)
+        i += 2
+
+    codes = {}
+    input_buffer = ""
+    for j in range(0, 257):
+        while len(input_buffer) < bit_lengths[j]:
+            input_buffer += int_to_bit_str(input_bytes[i])
             i += 1
-            current_key += encoded_string[i]
-        decoded_string += key_dict[current_key]
+        codes[input_buffer[:bit_lengths[j]]] = j
+        input_buffer = input_buffer[bit_lengths[j]:]
 
-        i += 1
+    output = bytearray()
+    current_char = ""
+    while True:
+        while current_char not in codes:
+            if len(input_buffer) == 0:
+                input_buffer += int_to_bit_str(input_bytes[i])
+                i += 1
+            current_char += input_buffer[0]
+            input_buffer = input_buffer[1:]
+        if codes[current_char] == 256:
+            break
+        else:
+            output += codes[current_char].to_bytes(1, 'big')
+            current_char = ''
 
-    return decoded_string
+    return output
