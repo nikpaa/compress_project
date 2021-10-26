@@ -5,5 +5,7 @@
 | 20.10 |  9   | Improved huffman|
 | 23.10 |  12  | Improved lzss and tests|
 | 25.10 |  3   | Added docstring |
+| 26.10 |  12  | Implemented deflate-algorithm |
+
 
 
