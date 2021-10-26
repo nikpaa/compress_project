@@ -1,26 +1,29 @@
 from heapq import heappush, heappop, heapify
-from helpers import bits_to_byte, int_to_bit_str, rle
+from collections import deque
+from helpers import (
+    append_vals, bits_to_str, clear_buf, int_to_bits, read_to_buf
+)
 
 
 class HuffTree:
-    def __init__(self, byte: bytes, count: int):
-        self.byte = byte
+    def __init__(self, value: int, count: int):
+        self.value = value
         self.count = count
         self.left = None
         self.right = None
 
     def merge(self, other):
-        first = HuffTree(self.byte, self.count)
+        first = HuffTree(self.value, self.count)
         first.left = self.left
         first.right = self.right
-        self.byte = None
+        self.value = None
         self.count = first.count + other.count
         self.left = first
         self.right = other
 
     def __str__(self):
-        if self.byte is not None:
-            return f"{self.count} {self.byte}"
+        if self.value is not None:
+            return f"{self.count} {self.value}"
         else:
             return str(self.count) + ": ( " + \
                     self.left.__str__() + ", " + self.right.__str__() + \
@@ -35,19 +38,28 @@ class HuffTree:
         return self.count < other.count
 
 
-def byte_counts(input_bytes: bytearray) -> list:
-    d = [0]*257
-    for b in input_bytes:
+def counts(in_arr: list[int], n_values: int) -> list:
+    """ Takes input array and transforms all the values
+        into a dict with different values as keys and
+        counts as values. Also transforms the value-count
+        pairs into HuffTree nodes.
+    """
+    d = [0]*(n_values)
+    for b in in_arr:
         d[b] += 1
 
     hufftree_list = []
-    for b in range(0, 257):
-        hufftree_list.append(HuffTree(b, d[b]))
+    for b in range(0, n_values):
+        # only add nonzero entries
+        if d[b] > 0:
+            hufftree_list.append(HuffTree(b, d[b]))
 
     return hufftree_list
 
 
-def counts_to_hufftree(count_list: list) -> HuffTree:
+def counts_to_hufftree(count_list: list[HuffTree]) -> HuffTree:
+    """ Constructs a Huffman Tree from a list of HuffTree nodes.
+    """
     heapify(count_list)
     while len(count_list) > 1:
         node1 = heappop(count_list)
@@ -58,86 +70,162 @@ def counts_to_hufftree(count_list: list) -> HuffTree:
     return heappop(count_list)
 
 
-def hufftree_to_keys(ht: HuffTree, key: int,
-                     lst: list) -> list:
-    if ht.byte is not None:
-        lst[ht.byte] = key
-        return lst
+def hufftree_to_code_lens(code_lens: list, ht: HuffTree,
+                          current_len: int) -> list:
+    """ Takes a huffman tree and transforms it
+        into a list with code lengths corresponding to the length
+        of the huffman encoding of the given symbol.
+    """
+    if ht.value is not None:
+        # this does not work correctly when there
+        # is a simple node, the max fixes that
+        code_lens[ht.value] = max(current_len, 1)
     else:
-        lst = hufftree_to_keys(ht.left, key+[0], lst)
-        lst = hufftree_to_keys(ht.right, key+[1], lst)
-        return lst
+        hufftree_to_code_lens(code_lens, ht.left, current_len+1)
+        hufftree_to_code_lens(code_lens, ht.right, current_len+1)
 
 
-def huff_encode(input_bytes: bytearray) -> bytearray:
+def canonical_huffcode(bit_lens: list[int]) -> list[list[int]]:
+    """ Calculates the canonical huffman code
+        from a list of code lengths
+    """
+    bit_lens_ord = sorted(range(0, len(bit_lens)),
+                          key=lambda i: bit_lens[i])
+    bit_lens_inv_ord = sorted(range(0, len(bit_lens_ord)),
+                              key=lambda i: bit_lens_ord[i])
+    bit_lens_sorted = [bit_lens[i] for i in bit_lens_ord]
 
-    counts_dict = byte_counts(input_bytes)
-    hufftree = counts_to_hufftree(counts_dict)
-    keys_empty = [[]]*257
-    keys = hufftree_to_keys(hufftree, [], keys_empty)
-
-    output = bytearray()
-
-    # add rle bitlengths
-    output += rle(list(map(len, keys)))
-
-    # add codes
-    output_buffer = []
-    for i in range(0, 257):
-        output_buffer += keys[i]
-        while len(output_buffer) >= 8:
-            output += bits_to_byte(output_buffer[:8])
-            output_buffer = output_buffer[8:]
-
-    # add input data
-    for byte in input_bytes:
-        output_buffer += keys[byte]
-        while len(output_buffer) >= 8:
-            output += bits_to_byte(output_buffer[:8])
-            output_buffer = output_buffer[8:]
-
-    output_buffer += keys[256]
-    # add rest of the buffer
-    while len(output_buffer) > 0:
-        output += bits_to_byte(output_buffer[:8])
-        output_buffer = output_buffer[8:]
-
-    return output
-
-
-def huff_decode(input_bytes: bytearray) -> bytearray:
-    bit_lengths = []
+    # nothing to encode, return empty list
+    if bit_lens_sorted[len(bit_lens_sorted)-1] == 0:
+        return [[]]*len(bit_lens)
 
     i = 0
-    while len(bit_lengths) < 257:
-        count = input_bytes[i]
-        val = input_bytes[i+1]
-        for j in range(0, count):
-            bit_lengths.append(val)
-        i += 2
+    output = []
+    while bit_lens_sorted[i] == 0:
+        output.append([])
+        i += 1
+    output.append([0]*bit_lens_sorted[i])
+    code = 0
+    i += 1
+    while i < len(bit_lens_sorted):
+        code = code + 1 << bit_lens_sorted[i] - bit_lens_sorted[i-1]
+        output.append(list(reversed(int_to_bits(code, bit_lens_sorted[i]))))
+        i += 1
 
-    codes = {}
-    input_buffer = ""
-    for j in range(0, 257):
-        while len(input_buffer) < bit_lengths[j]:
-            input_buffer += int_to_bit_str(input_bytes[i])
-            i += 1
-        codes[input_buffer[:bit_lengths[j]]] = j
-        input_buffer = input_buffer[bit_lengths[j]:]
+    return [output[i] for i in bit_lens_inv_ord]
 
+
+def get_codes(vals: list[int], n_vals: int) -> (list[int], list[list[int]]):
+    """ Gets list of values and returns their code lengths
+        and the respective codes.
+    """
+    counts_dict = counts(vals, n_vals)
+    hufftree = counts_to_hufftree(counts_dict)
+    code_lens = [0]*n_vals
+    hufftree_to_code_lens(code_lens, hufftree, 0)
+    return (code_lens, canonical_huffcode(code_lens))
+
+
+def rle(bit_lengths: list[int]) -> bytearray:
+    """ RLE implementation
+
+        Assumes that the elements of 'bit_lengths'
+        are integers between 0 and 255.
+    """
+    current = bit_lengths[0]
+    current_count = 1
     output = bytearray()
-    current_char = ""
-    while True:
-        while current_char not in codes:
-            if len(input_buffer) == 0:
-                input_buffer += int_to_bit_str(input_bytes[i])
-                i += 1
-            current_char += input_buffer[0]
-            input_buffer = input_buffer[1:]
-        if codes[current_char] == 256:
-            break
+    for i in range(1, len(bit_lengths)):
+
+        # next byte matches current byte
+        if current_count < 255 and bit_lengths[i] == current:
+            current_count += 1
+        # next byte differs, append current byte along with its count to output
+        # and set new current byte and current count
         else:
-            output += codes[current_char].to_bytes(1, 'big')
-            current_char = ''
+            output += current_count.to_bytes(1, 'big')
+            output += current.to_bytes(1, 'big')
+            current = bit_lengths[i]
+            current_count = 1
+
+    # append last byte along with its count
+    output += current_count.to_bytes(1, 'big')
+    output += current.to_bytes(1, 'big')
 
     return output
+
+
+def huff_encode(in_arr: bytearray) -> bytearray:
+    """ Encodes the input array using Canonical Huffman Encoding.
+    """
+    in_vals = deque(in_arr)
+    in_vals.append(256)
+    (code_lens, codes) = get_codes(list(in_vals), 257)
+
+    out = bytearray()
+
+    # add rle bitlengths
+    out += rle(code_lens)
+
+    # add input data
+    out_buf = deque([])
+    while len(in_vals) > 0:
+        val = in_vals.popleft()
+        append_vals(out_buf, codes[val])
+        clear_buf(out, out_buf, 7)
+
+    # add rest of the buffer
+    clear_buf(out, out_buf, 0)
+
+    return out
+
+
+def read_code_dict(in_vals: deque[int], n_vals: int) -> dict[str, int]:
+    """ Reads code dict from input values, assuming its encoded using
+        Canonical Huffman Coding and RLE for the code lengths.
+        Returns the dict.
+    """
+    bit_lengths = []
+    while len(bit_lengths) < n_vals:
+        count = in_vals.popleft()
+        val = in_vals.popleft()
+        for j in range(0, count):
+            bit_lengths.append(val)
+    keys = canonical_huffcode(bit_lengths)
+    codes = {}
+    for j in range(0, n_vals):
+        if len(keys[j]) > 0:
+            codes[bits_to_str(keys[j])] = j
+
+    return codes
+
+
+def read_code(in_vals: deque[int], in_buf: deque[str],
+              codes: dict[str, int]) -> int:
+    """ Reads characters from the input value until it finds
+        a code thats included in the codes dictionary.
+        Returns the value of the code.
+    """
+
+    key = ""
+    while key not in codes:
+        read_to_buf(in_vals, in_buf, 1)
+        key += in_buf.popleft()
+    return codes[key]
+
+
+def huff_decode(in_arr: bytearray) -> bytearray:
+    """ Decodes the input array assuming it was encoded with
+        Canonical Huffman Encoding
+    """
+    in_vals = deque(in_arr)
+    codes = read_code_dict(in_vals, 257)
+
+    out = bytearray()
+    in_buf = deque([])
+    code = read_code(in_vals, in_buf, codes)
+    while code != 256:
+        out += code.to_bytes(1, 'big')
+        code = read_code(in_vals, in_buf, codes)
+
+    return out

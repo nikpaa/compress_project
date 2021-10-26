@@ -1,149 +1,255 @@
 from collections import deque
+from helpers import int_to_bitlen
 
 
-def append_text(s: str, bta: bytearray = bytearray()) -> bytearray:
-    while len(s) > 127:
-        s_len = len(s)
-        # multiply by two to set last bit to 0
-        len_bytes = (127*2).to_bytes(1, 'big')
-        bta += len_bytes + s[:127].encode()
-        s = s[127:]
+class LZSSNode:
+    def __init__(self, char: int = None,
+                 dist: int = None, length: int = None):
+        if char is None and (dist is None or length is None):
+            e = 'Either "char" or "dist" and "length" have to be defined'
+            raise Exception(e)
+        elif char is None:
+            self.dist = dist
+            self.length = length
+            self.type = 'match'
+        else:
+            self.char = char
+            self.type = 'literal'
 
-    if len(s) == 0:
-        return bta
+    def __str__(self) -> str:
+        if self.type == 'literal':
+            return f'\'{chr(self.char)}\''
+        else:
+            return f'<{self.dist},{self.length}>'
 
-    s_len = len(s)
-    len_bytes = (s_len*2).to_bytes(1, 'big')
+    def value(self) -> (int, int):
+        if self.type == 'literal':
+            return (self.char, None)
+        else:
+            return (self.dist, self.length)
 
-    return bta + len_bytes + s.encode()
+    def is_literal(self) -> bool:
+        return self.type == 'literal'
+
+    def defl_sym(self) -> int:
+        if self.is_literal():
+            return self.char
+        else:
+            return int_to_bitlen(self.length) + 255
+
+    def defl_dist(self) -> int:
+        if self.is_literal():
+            return None
+        else:
+            return int_to_bitlen(self.dist)
+
+    # for printing (debugging)
+    def __repr__(self):
+        return self.__str__()
 
 
-def append_ref(ref_len: int, ref_pos: int,
-               bta: bytearray = bytearray()) -> bytearray:
-    # *2+1 to set last bit to 1
-    len_bytes = (ref_len*2+1).to_bytes(1, 'big')
-
-    pos_bytes = ref_pos.to_bytes(1, 'big')
-
-    return bta + len_bytes + pos_bytes
-
-
-def append_lzss(pos: int, s: str, in_buf: deque,
-                out_buf: str, out: bytearray) -> (str, bytearray):
-    """ Formats the matched string
-        into proper form and appends it to the output
+def append_chars(out: deque[LZSSNode], char_buf: deque[int]):
+    """ Transforms characters in char_buf to LZSS nodes
+        and appends them to out.
     """
-    if len(s) >= 2:
-        relative_pos = len(in_buf)-pos-len(s)
-        out = append_text(out_buf, out)
-        out = append_ref(len(s), relative_pos, out)
-        return ("", out)
+    while len(char_buf) > 0:
+        out.append(LZSSNode(char=char_buf.popleft()))
+
+
+def append_ref(out: deque[LZSSNode], length: int, dist: int):
+    """ Takes length and distance of reference
+        and appends it to out.
+    """
+    out.append(LZSSNode(dist=dist, length=length))
+
+
+def append_lzss_node(out: deque[LZSSNode], pos: int,
+                     char_buf: deque[int], in_buf: deque[int]):
+    """ Makes sure that only matches with 3 or longer len
+        are appended as reference.
+        Otherwise it is appended as a literal character.
+    """
+    if len(char_buf) >= 3:
+        append_ref(out, len(char_buf), len(in_buf)-pos-len(char_buf))
+        char_buf.clear()
     else:
-        return (out_buf + s, out)
+        append_chars(out, char_buf)
 
 
-def check_match_from(pos: int, s: str, in_buf: deque) -> bool:
-    """ Checks if 's' is in 'in_buf' starting from 'pos'
+def buffer_find_from(pos: int, char_buf: deque[int], in_buf: deque[int]) -> bool:
+    """ Checks if 'char_buf' is in 'in_buf' starting from 'pos'
     """
-    i = 0
-    for i in range(0, len(s)):
-        if s[i] != in_buf[pos+i]:
+    for i in range(0, len(char_buf)):
+        if char_buf[i] != in_buf[pos+i]:
             return False
     return True
 
 
-def buffer_find(s: str, in_buf: deque) -> int:
-    """ Checks if 's' is included in 'in_buf'
+def buffer_find(char_buf: deque[int], in_buf: deque[int]) -> int:
+    """ Checks if 'char_buf' is included in 'in_buf'
         Returns 'pos' of matched string if found,
         otherwise returns -1
     """
-    pos = len(in_buf) - len(s)
+    pos = len(in_buf) - len(char_buf)
     while pos >= 0:
-        if check_match_from(pos, s, in_buf):
+        if buffer_find_from(pos, char_buf, in_buf):
             return pos
         pos -= 1
     return pos
 
 
-def check_match(c: str, s: str, pos: int, in_buf: deque,
-                out_buf: str, out: bytearray) -> (int, str, str, bytearray):
+def handle_new_character(c: int, pos: int, in_buf: deque[int],
+                         char_buf: deque[int], out: deque[LZSSNode]) -> int:
     """ Handles a new character:
         if there is a previous match, checks if the match can be elongated;
         if not, checks if the new character can be matched separately.
-        Returns updated output with the information about the current match.
+        Returns updated pos of a match.
     """
     if pos >= 0:
-        new_s = s + c
-        new_pos = buffer_find(new_s, in_buf)
+        char_buf.append(c)
+        new_pos = buffer_find(char_buf, in_buf)
         if new_pos >= 0:
-            return (new_pos, new_s, out_buf, out)
+            return new_pos
         else:
-            (out_buf, out) = append_lzss(pos, s, in_buf, out_buf, out)
+            char_buf.pop()
+            append_lzss_node(out, pos, char_buf, in_buf)
+            char_buf.clear()
 
-    pos = buffer_find(c, in_buf)
+    char_buf.append(c)
+    pos = buffer_find(char_buf, in_buf)
     if pos >= 0:
-        return (pos, c, out_buf, out)
+        return pos
     else:
-        return (pos, "", out_buf + c, out)
+        append_chars(out, char_buf)
+        return pos
 
 
-def lzss_encode(input_string: str, buffer_size: int = 2**8-1) -> bytearray:
-    """ Encodes the input string using
-        Lempel-Ziv-Storer-Szymanski encoding
+def to_lzss(in_arr: bytearray, buffer_size: int) -> deque[LZSSNode]:
+    """ Transforms input array into deque of LZSS nodes
+        which are either literal characters or references to previous text.
     """
     in_buf = deque()
-    out = bytearray()
-    out_buf = ""
+    out = deque()
 
-    s = ""
+    char_buf = deque()
     pos = -1
+    in_vals = deque(in_arr)
 
-    for i in range(0, len(input_string)):
-        c = input_string[i]
-        (pos, s, out_buf, out) = check_match(c, s, pos, in_buf, out_buf, out)
+    while len(in_vals) > 0:
+        c = in_vals.popleft()
+        pos = handle_new_character(c, pos, in_buf, char_buf, out)
         in_buf.append(c)
 
-        if len(in_buf) == buffer_size + 1:
+        if len(in_buf) == buffer_size:
             in_buf.popleft()
             pos -= 1
             if pos < 0:
-                (out_buf, out) = append_lzss(pos, s, in_buf, out_buf, out)
-                s = ""
+                append_lzss_node(out, pos, char_buf, in_buf)
+                char_buf.clear()
 
     if pos >= 0:
-        (out_buf, out) = append_lzss(pos, s, in_buf, out_buf, out)
-    out = append_text(out_buf, out)
+        append_lzss_node(out, pos, char_buf, in_buf)
 
     return out
 
 
-def parse_text(str_len: int, bta: bytearray()) -> (str, bytearray):
-    text = bta[:str_len].decode('utf-8')
-    rest = bta[str_len:]
-    return (text, rest)
+def parse_text(out: deque[LZSSNode], in_vals: deque[int], n_chars: int):
+    """ Reads n char amount of characters from input values
+        and transforms them into literal lzss nodes
+        and appends them into out.
+    """
+    for i in range(0, n_chars):
+        out.append(LZSSNode(char=in_vals.popleft()))
 
 
-def parse_ref(ref_len: int, bta: bytearray()) -> (int, int, bytearray):
-    ref_pos = bta[0]
-    rest = bta[1:]
-    return (ref_len, ref_pos, rest)
+def parse_ref(out: deque[LZSSNode], in_vals: deque[int], length: int):
+    """ Reads distance of the match from input values
+        and appends the pair of length and distance as lzss nodes into out
+    """
+    dist = in_vals.popleft()
+    out.append(LZSSNode(length=length, dist=dist))
 
 
-def lzss_decode(bta: bytearray()) -> str:
-    out = ""
-    while len(bta) > 0:
+def lzss_parse(in_arr: bytearray) -> deque[LZSSNode]:
+    """ Parses encoded lzss data
+        and transforms them into deque of lzss nodes
+    """
+    out = deque()
+    in_vals = deque(in_arr)
+    while len(in_vals) > 0:
         # parity of this tells whether the following is text or a ref
-        b0 = bta[0]
-        bta = bta[1:]
+        b0 = in_vals.popleft()
         is_ref = b0 % 2 == 1
-        # the other 7 bits are ref_len/str_len
+        # the other 7 bits are length/str_len
         b0 = b0 // 2
         if is_ref:
-            (ref_len, ref_pos, bta) = parse_ref(b0, bta)
-            n = len(out)
-            out += out[n-ref_pos:n-ref_pos+ref_len]
+            parse_ref(out, in_vals, b0)
         else:
-            (text, bta) = parse_text(b0, bta)
-            out += text
+            parse_text(out, in_vals, b0)
 
     return out
+
+
+def lzss_to_decrypted(in_nodes: deque[LZSSNode]) -> bytearray:
+    """ takes lzss nodes as input and transforms them into
+        original bytearray
+    """
+    out = bytearray()
+    while len(in_nodes) > 0:
+        node = in_nodes.popleft()
+        if node.is_literal():
+            out.append(node.char)
+        else:
+            n = len(out)
+            for i in range(0, node.length):
+                out.append(out[n-node.dist+i])
+
+    return out
+
+
+def append_with_len(out: bytearray(), in_vals: deque[int]):
+    """ Appends literal characters along
+        with the number of characters to be appended
+    """
+    while len(in_vals) > 0:
+        len_app = min(127, len(in_vals))
+        out.append(len_app*2)
+        for i in range(0, len_app):
+            out.append(in_vals.popleft())
+
+
+def lzss_to_encrypted(in_nodes: deque[LZSSNode]) -> bytearray:
+    """ Takes lzss nodes as input and transforms them into
+        lzss encoded bytearray
+    """
+    out = bytearray()
+    in_vals = deque()
+    for node in in_nodes:
+        if node.is_literal():
+            (val, none) = node.value()
+            in_vals.append(val)
+        else:
+            if len(in_vals) > 0:
+                append_with_len(out, in_vals)
+
+            out.append(node.length*2+1)
+            out.append(node.dist)
+
+    if len(in_vals) > 0:
+        append_with_len(out, in_vals)
+
+    return out
+
+
+def lzss_encode(in_arr: bytearray, buffer_size: int = 2**8) -> bytearray:
+    """ Encodes the input string using LZSS Encoding.
+    """
+    lzss_lst = to_lzss(in_arr, buffer_size)
+    return lzss_to_encrypted(lzss_lst)
+
+
+def lzss_decode(in_arr: bytearray) -> bytearray:
+    """ Decodes the input string using LZSS Decoding.
+    """
+    lzss_lst = lzss_parse(in_arr)
+    return lzss_to_decrypted(lzss_lst)
