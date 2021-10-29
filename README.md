@@ -42,3 +42,11 @@ Pylint report can be obtained using the command:
 ```bash
 pylint src
 ```
+
+### Example
+
+Files can be compressed as follows:
+
+```bash
+python3 src/io.py data/dostoyevski_100.txt
+```
