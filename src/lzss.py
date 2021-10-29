@@ -64,7 +64,7 @@ def append_ref(out: deque[LZSSNode], length: int, dist: int):
 
 
 def append_lzss_node(out: deque[LZSSNode], pos: int,
-                     char_buf: deque[int], in_buf: deque[int]):
+                     char_buf: deque[int], in_buf: list[int]):
     """ Makes sure that only matches with 3 or longer len
         are appended as reference.
         Otherwise it is appended as a literal character.
@@ -76,7 +76,7 @@ def append_lzss_node(out: deque[LZSSNode], pos: int,
         append_chars(out, char_buf)
 
 
-def buffer_find_from(pos: int, char_buf: deque[int], in_buf: deque[int]) -> bool:
+def buffer_find_from(pos: int, char_buf: deque[int], in_buf: list[int]) -> bool:
     """ Checks if 'char_buf' is in 'in_buf' starting from 'pos'
     """
     for i in range(0, len(char_buf)):
@@ -85,12 +85,13 @@ def buffer_find_from(pos: int, char_buf: deque[int], in_buf: deque[int]) -> bool
     return True
 
 
-def buffer_find(char_buf: deque[int], in_buf: deque[int]) -> int:
+def buffer_find(char_buf: deque[int], in_buf: list[int],
+                starting_pos: int = -1) -> int:
     """ Checks if 'char_buf' is included in 'in_buf'
         Returns 'pos' of matched string if found,
         otherwise returns -1
     """
-    pos = len(in_buf) - len(char_buf)
+    pos = starting_pos if starting_pos >= 0 else len(in_buf) - len(char_buf)
     while pos >= 0:
         if buffer_find_from(pos, char_buf, in_buf):
             return pos
@@ -98,7 +99,7 @@ def buffer_find(char_buf: deque[int], in_buf: deque[int]) -> int:
     return pos
 
 
-def handle_new_character(c: int, pos: int, in_buf: deque[int],
+def handle_new_character(c: int, pos: int, in_buf: list[int],
                          char_buf: deque[int], out: deque[LZSSNode]) -> int:
     """ Handles a new character:
         if there is a previous match, checks if the match can be elongated;
@@ -107,7 +108,7 @@ def handle_new_character(c: int, pos: int, in_buf: deque[int],
     """
     if pos >= 0:
         char_buf.append(c)
-        new_pos = buffer_find(char_buf, in_buf)
+        new_pos = buffer_find(char_buf, in_buf, pos)
         if new_pos >= 0:
             return new_pos
         else:
@@ -128,7 +129,7 @@ def to_lzss(in_arr: bytearray, buffer_size: int) -> deque[LZSSNode]:
     """ Transforms input array into deque of LZSS nodes
         which are either literal characters or references to previous text.
     """
-    in_buf = deque()
+    in_buf = []
     out = deque()
 
     char_buf = deque()
@@ -141,7 +142,7 @@ def to_lzss(in_arr: bytearray, buffer_size: int) -> deque[LZSSNode]:
         in_buf.append(c)
 
         if len(in_buf) == buffer_size:
-            in_buf.popleft()
+            in_buf = in_buf[1:]
             pos -= 1
             if pos < 0:
                 append_lzss_node(out, pos, char_buf, in_buf)
