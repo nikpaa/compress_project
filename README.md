@@ -48,5 +48,13 @@ pylint src
 Files can be compressed as follows:
 
 ```bash
-python3 src/io.py data/dostoyevski_100.txt
+python3 src/io.py deflate data/dostoyevski_100.txt
+# output is in the file data/dostoyevski_100.txt.defl
+```
+
+Decompression works like so:
+```bash
+# note that the input file should not include the .defl file extension
+python3 src/io.py inflate data/dostoyevski_100.txt
+# output is in the file data/dostoyevski_100.txt.infl
 ```

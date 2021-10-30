@@ -32,5 +32,24 @@ def inflate_file(output_filename: str):
     out_file.close()
 
 
-deflate_file(sys.argv[1])
-inflate_file(sys.argv[1])
+def print_usage(progname: str):
+    print('usage:')
+    print(f' python3 {progname} op filename')
+    print('')
+    print('arguments:')
+    print(' op:       either "inflate" or "deflate"')
+    print(' filename: the name of the file')
+
+
+def main(l: list):
+    if len(l) != 3:
+        print_usage(l[0])
+    elif l[1] == 'inflate':
+        inflate_file(l[2])
+    elif l[1] == 'deflate':
+        deflate_file(l[2])
+    else:
+        print_usage(l[0])
+
+
+main(sys.argv)
