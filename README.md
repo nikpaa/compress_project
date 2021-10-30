@@ -5,6 +5,7 @@ Algorithms and data structures project
 ## Documentation
 
 * [Implementation](documentation/implementation.md)
+* [Some examples of running time](documentation/performance.md)
 
 ## Progress reports
 
